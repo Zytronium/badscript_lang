@@ -26,8 +26,12 @@ Params: `emsg`: string - the error message to print.
 ### `noop()`
 Does nothing.
 
+### (planned) `sleep()`
+Waits x number of seconds (can be decimals) before continuing with the script.
+
+Params: `sec`: number - the number of seconds to sleep for.
+
 ### `exit()`
 Ends the program with a code. Defaults to 0 if not specified.
 
 Params: `code`: int - the exit code to exit on. Defaults to 0 if unspecified.
-
