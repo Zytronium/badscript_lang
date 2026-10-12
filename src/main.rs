@@ -1,7 +1,9 @@
 use std::collections::HashMap;
-use std::env;
+use std::{env, io, time};
 use std::fs;
+use std::io::Write;
 use std::process;
+use std::thread::sleep;
 use colored_print::ceprintln;
 use colored_print::ceprint;
 
@@ -39,6 +41,7 @@ fn builtins() -> HashMap<&'static str, Builtin> {
         Builtin { name: "printerr", arity: None, func: bs_fn_printerr },
         Builtin { name: "printlnerr", arity: None, func: bs_fn_printlnerr },
         Builtin { name: "noop", arity: Some(0), func: bs_fn_noop },
+        Builtin { name: "sleep", arity: Some(1), func: bs_fn_sleep },
         Builtin { name: "exit", arity: None, func: bs_fn_exit },
     ];
 
@@ -52,6 +55,7 @@ fn builtins() -> HashMap<&'static str, Builtin> {
 fn bs_fn_print(args: Vec<Value>) -> Result<Value, String> {
     let msg = opt_str(&args)?;
     print!("{}", msg.unwrap_or(""));
+    io::stdout().flush().map_err(|e| e.to_string())?;
     Ok(Value::Null)
 }
 fn bs_fn_println(args: Vec<Value>) -> Result<Value, String> {
@@ -63,6 +67,7 @@ fn bs_fn_println(args: Vec<Value>) -> Result<Value, String> {
 fn bs_fn_printerr(args: Vec<Value>) -> Result<Value, String> {
     let emsg = opt_str(&args)?;
     ceprint!("%R:{}", emsg.unwrap_or("Error"));
+    io::stdout().flush().map_err(|e| e.to_string())?;
     Ok(Value::Null)
 }
 
@@ -73,6 +78,18 @@ fn bs_fn_printlnerr(args: Vec<Value>) -> Result<Value, String> {
 }
 
 fn bs_fn_noop(_args: Vec<Value>) -> Result<Value, String> {
+    Ok(Value::Null)
+}
+
+fn bs_fn_sleep(args: Vec<Value>) -> Result<Value, String> {
+    let sec = match args.first() {
+        None => return Err(String::from("expected 1 argument. Found 0.")),
+        Some(Value::Number(n)) => *n as f64,
+        Some(_) => return Err(String::from("sleep expects a number")),
+    };
+
+    sleep(time::Duration::from_secs_f64(sec));
+
     Ok(Value::Null)
 }
 

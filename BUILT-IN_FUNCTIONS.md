@@ -26,7 +26,7 @@ Params: `emsg`: string - the error message to print.
 ### `noop()`
 Does nothing.
 
-### (planned) `sleep()`
+### `sleep()`
 Waits x number of seconds (can be decimals) before continuing with the script.
 
 Params: `sec`: number - the number of seconds to sleep for.
