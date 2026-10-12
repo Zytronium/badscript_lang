@@ -67,7 +67,6 @@ fn bs_fn_println(args: Vec<Value>) -> Result<Value, String> {
 fn bs_fn_printerr(args: Vec<Value>) -> Result<Value, String> {
     let emsg = opt_str(&args)?;
     ceprint!("%R:{}", emsg.unwrap_or("Error"));
-    io::stdout().flush().map_err(|e| e.to_string())?;
     Ok(Value::Null)
 }
 
@@ -84,7 +83,7 @@ fn bs_fn_noop(_args: Vec<Value>) -> Result<Value, String> {
 fn bs_fn_sleep(args: Vec<Value>) -> Result<Value, String> {
     let sec = match args.first() {
         None => return Err(String::from("expected 1 argument. Found 0.")),
-        Some(Value::Number(n)) => *n as f64,
+        Some(Value::Number(n)) => *n,
         Some(_) => return Err(String::from("sleep expects a number")),
     };
 
@@ -99,8 +98,6 @@ fn bs_fn_exit(args: Vec<Value>) -> Result<Value, String> {
         Some(Value::Number(n)) => *n as i32,
         Some(_) => return Err(String::from("exit expects a number")),
     };
-    // println!();
-    // println!("Process exited with exit code {c}");
     process::exit(c)
 }
 
@@ -165,7 +162,7 @@ fn main() {
     let script = fs::read_to_string(file_path)
         .expect("Failed to read file");
 
-    let _builtins = builtins();
+    let builtins = builtins();
 
     let mut lx = Lexer::new();
 
@@ -181,6 +178,7 @@ fn main() {
         if lx.next_esc_seq && !lx.string_mode && char != '\n' {
             throw_syntax_error(format!("{}:{} - Escape sequences are only allowed in strings or to break a line into two lines", lx.line, lx.col - 1));
         }
+
         match char {
             // newlines - ends line, token, and comment \\
             '\n' => {
@@ -229,10 +227,10 @@ fn main() {
                 }
             }
             // escape sequences \\
-            'n' if lx.prev_char == '\\' && lx.string_mode == true => {
+            'n' if lx.prev_char == '\\' && lx.string_mode => {
                 lx.current_token.push('\n');
             }
-            _ if lx.prev_char == '\\' && lx.string_mode == true => {
+            _ if lx.prev_char == '\\' && lx.string_mode => {
                 throw_syntax_error(format!("{}:{} - Unknown escape sequence \\{}.", lx.line, lx.col - 1, char));
             }
             // all other chars \\
@@ -254,7 +252,7 @@ fn main() {
             throw_error(format!("{}:{} - Unknown expression \"{}\"", "line", "col", token));
         };
 
-        let Some(builtin) = _builtins.get(fn_name) else {
+        let Some(builtin) = builtins.get(fn_name) else {
             throw_error(format!("{}:{} - Unknown function \"{}()\"", "line", "col", fn_name)); // TODO: get line and col of error location. NOTE: You can do this by turning `token` into tuples of text and location (location itself would be another tuple of line and col).
         };
 
