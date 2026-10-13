@@ -31,6 +31,11 @@ Waits x number of seconds (can be decimals) before continuing with the script.
 
 Params: `sec`: number - the number of seconds to sleep for.
 
+### (planned) `system()`
+Runs the given string as a system command.
+
+Params: `cmd`: string - the command string to run
+
 ### `exit()`
 Ends the program with a code. Defaults to 0 if not specified.
 

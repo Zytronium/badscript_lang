@@ -37,3 +37,5 @@ printerr(input)
 printlnerr("\"")
 # prints in red, 'Error: input cannot be an SQL query to drop a table. Invalid input "; DROP TABLE Responses;"'
 ```
+
+Formatting strings to include variables mid-string is a separate future feature.
