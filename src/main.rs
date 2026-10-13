@@ -117,7 +117,7 @@ impl Token {
 #[derive(Debug, Clone)]
 struct Statement {
     tokens: Vec<Token>,
-    line: usize,
+    line: usize, // starting line - can span multiple lines by escaping newlines
 }
 
 impl Statement {
@@ -127,7 +127,8 @@ impl Statement {
 }
 
 struct Lexer {
-    tokens: Vec<Token>, // TODO: replace with statements
+    statements: Vec<Statement>,
+    current_statement: Vec<Token>,
     current_token: String,
     token_start_col: usize,
     prev_char: char,
@@ -141,7 +142,8 @@ struct Lexer {
 impl Lexer {
     fn new() -> Self {
         Lexer {
-            tokens: Vec::new(),
+            statements: Vec::new(),
+            current_statement: Vec::new(),
             current_token: String::new(),
             token_start_col: 1,
             prev_char: ' ',
@@ -156,7 +158,16 @@ impl Lexer {
     fn new_token(&mut self) {
         let tok = std::mem::take(&mut self.current_token).trim().to_string();
         if !tok.is_empty() {
-            self.tokens.push(Token::new(tok, self.line, self.token_start_col));
+            self.current_statement.push(Token::new(tok, self.line, self.token_start_col));
+        }
+        self.token_start_col = self.col;
+    }
+
+    fn new_statement(&mut self) {
+        self.new_token();
+        let stat = std::mem::take(&mut self.current_statement);
+        if !stat.is_empty() {
+            self.statements.push(Statement::new(stat, self.line));
         }
         self.token_start_col = self.col;
     }
@@ -164,7 +175,11 @@ impl Lexer {
     fn next_line(&mut self) {
         self.line += 1;
         self.col = 1;
-        self.new_token();
+        if self.prev_char != '\\' {
+            self.new_statement();
+        } else {
+            self.new_token();
+        }
     }
 }
 
@@ -195,8 +210,6 @@ fn main() {
     let mut lx = Lexer::new();
 
     for char in script.chars() {
-        // todo: don't error if char is '\\' and next char is '\n'
-
         // In comment mode, ignore all characters except newline, which turns off comment mode
         if lx.comment_mode && char != '\n' {
             lx.prev_char = char;
@@ -217,7 +230,7 @@ fn main() {
                 if lx.comment_mode {
                     lx.comment_mode = false;
                 }
-                if lx.prev_char == '\\' {
+                if lx.prev_char == '\\' { // Don't error if last char of line is backslash
                     lx.next_esc_seq = false;
                 }
                 continue; // don't increment col (next_line() also sets prev_char so we can skip that safely too)
@@ -277,38 +290,40 @@ fn main() {
         lx.col += 1;
     }
 
-    for token in &lx.tokens {
-        let Some((fn_name, rest)) = token.value.split_once('(') else {
-            // not a function call since there's no '('
-            throw_error(format!("{}:{} - Unknown expression \"{}\"", token.line, token.col, token.value));
-        };
+    for statement in &lx.statements {
+        for token in &statement.tokens {
+            let Some((fn_name, rest)) = token.value.split_once('(') else {
+                // not a function call since there's no '('
+                throw_error(format!("{}:{} - Unknown expression \"{}\"", token.line, token.col, token.value));
+            };
 
-        let Some(builtin) = builtins.get(fn_name) else {
-            throw_error(format!("{}:{} - Unknown function \"{}()\"", token.line, token.col, fn_name));
-        };
+            let Some(builtin) = builtins.get(fn_name) else {
+                throw_error(format!("{}:{} - Unknown function \"{}()\"", token.line, token.col, fn_name));
+            };
 
-        let Some(inner) = rest.strip_suffix(')') else {
-            throw_syntax_error(format!("{}:{} - Unclosed parentheses at function call in \"{}\"", token.line, token.col, token.value));
-        };
+            let Some(inner) = rest.strip_suffix(')') else {
+                throw_syntax_error(format!("{}:{} - Unclosed parentheses at function call in \"{}\"", token.line, token.col, token.value));
+            };
 
-        let args: Vec<Value> = if inner.is_empty() {
-            Vec::new()
-        } else if let Some(s) = inner.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-            vec![Value::Str(s.to_string())]
-        } else if let Ok(n) = inner.parse::<f64>() {
-            vec![Value::Number(n)]
-        } else {
-            throw_error(format!("{}:{} - could not parse argument \"{}\"", token.line, token.col, inner));
-        };
+            let args: Vec<Value> = if inner.is_empty() {
+                Vec::new()
+            } else if let Some(s) = inner.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                vec![Value::Str(s.to_string())]
+            } else if let Ok(n) = inner.parse::<f64>() {
+                vec![Value::Number(n)]
+            } else {
+                throw_error(format!("{}:{} - could not parse argument \"{}\"", token.line, token.col, inner));
+            };
 
-        if let Some(n) = builtin.arity {
-            if args.len() != n {
-                throw_error(format!("{}:{} - {} expects {} args; got {} instead.", token.line, token.col, builtin.name, n, args.len()));
+            if let Some(n) = builtin.arity {
+                if args.len() != n {
+                    throw_error(format!("{}:{} - {} expects {} args; got {} instead.", token.line, token.col, builtin.name, n, args.len()));
+                }
             }
-        }
 
-        if let Err(e) = (builtin.func)(args) {
-            throw_error(format!("Error: {}", e));
+            if let Err(e) = (builtin.func)(args) {
+                throw_error(format!("Error: {}", e));
+            }
         }
     }
 }
