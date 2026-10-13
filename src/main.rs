@@ -104,13 +104,15 @@ fn bs_fn_exit(args: Vec<Value>) -> Result<Value, String> {
 #[derive(Debug, Clone)]
 struct Variable {
     name: String,
-    // type: Value, // Determine this automatically - do this later, types don't matter now
-    value: String, // change to basically Rust's version of Kotlin's Any when ready
+    value: Value,
 }
 
 impl Variable {
-    fn new(name: String, value: String) -> Self {
-        Variable { name, value }
+    fn new(name: String, value: Value) -> Self {
+        Variable {
+            name,
+            value,
+        }
     }
 }
 
@@ -193,6 +195,22 @@ impl Lexer {
         } else {
             self.new_token();
         }
+    }
+}
+
+fn parse_value(raw: &str) -> Result<Value, String> {
+    if let Some(s) = raw.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+        Ok(Value::Str(s.to_string()))
+    } else if let Ok(n) = raw.parse::<f64>() {
+        Ok(Value::Number(n))
+    } else if raw == "True" {
+        Ok(Value::Bool(true))
+    } else if raw == "False" {
+        Ok(Value::Bool(false))
+    } else if raw == "Null" {
+        Ok(Value::Null)
+    } else {
+        Err(format!("Could not parse value \"{}\"",raw))
     }
 }
 
@@ -383,7 +401,11 @@ fn main() {
                 let fourth_token = &statement.tokens[3];
                 if third_token.value.as_str() == "=" {
                     // correct syntax
-                    let new_var = Variable::new(second_token.value.clone(), fourth_token.value.clone());
+                    let new_value = match parse_value(fourth_token.value.as_str()) {
+                        Ok(v) => v,
+                        Err(e) => throw_error(format!("{}:{} - {}", fourth_token.line, fourth_token.col, e)),
+                    };
+                    let new_var = Variable::new(second_token.value.clone(), new_value);
                     variables.push(new_var);
                 } else {
                     throw_syntax_error(format!("{}:{} - Variable definition syntax: var <name> = <value>", second_token.line, second_token.col))
@@ -410,20 +432,7 @@ fn main() {
                 } else if let Ok(n) = inner.parse::<f64>() {
                     vec![Value::Number(n)]
                 } else if let Some(v) = variables.iter().find(|v| v.name == inner.trim()) {
-                    // Parse the variable's value
-                    if let Some(s) = v.value.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-                        vec![Value::Str(s.to_string())]
-                    } else if let Ok(n) = v.value.parse::<f64>() {
-                        vec![Value::Number(n)]
-                    } else if v.value == "True" {
-                        vec![Value::Bool(true)]
-                    } else if v.value == "False" {
-                        vec![Value::Bool(false)]
-                    } else if v.value == "Null" {
-                        vec![Value::Null]
-                    } else {
-                        throw_error(format!("{}:{} - could not parse variable value \"{}\"", first_token.line, first_token.col, v.value));
-                    }
+                    vec![v.value.clone()]
                 } else {
                     throw_error(format!("{}:{} - could not parse argument \"{}\"", first_token.line, first_token.col, inner));
                 };
