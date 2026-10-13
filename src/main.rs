@@ -102,19 +102,16 @@ fn bs_fn_exit(args: Vec<Value>) -> Result<Value, String> {
 }
 
 #[derive(Debug, Clone)]
-struct Keyword {
-    value: String,
+struct Variable {
+    name: String,
+    // type: Value, // Determine this automatically - do this later, types don't matter now
+    value: String, // change to basically Rust's version of Kotlin's Any when ready
 }
 
-impl Keyword {
-    fn new(value: String) -> Self {
-        Keyword { value }
+impl Variable {
+    fn new(name: String, value: String) -> Self {
+        Variable { name, value }
     }
-}
-
-#[derive(Debug, Clone)]
-struct Operator {
-    symbol: String,
 }
 
 #[derive(Debug, Clone)]
@@ -222,6 +219,30 @@ fn main() {
         .expect("Failed to read file");
 
     let builtins = builtins();
+    let keywords = [
+        "var",
+        // "if",
+        // "else",
+        // "func",
+    ];
+    let operators = [
+        "=",
+        "+",
+        "-",
+        "/",
+        "*",
+        "<",
+        ">",
+        "<=",
+        ">=",
+        "!=",
+        "==",
+        "+=",
+        "-=",
+        "/=",
+        "*=",
+    ];
+    let mut variables: Vec<Variable> = Vec::new();
 
     let mut lx = Lexer::new();
 
@@ -305,40 +326,120 @@ fn main() {
         lx.prev_char = char;
         lx.col += 1;
     }
+    
+    fn is_function_call(token: &Token) -> bool {
+        let val = &token.value;
+        let mut opening_pars_found = 0;
+        let mut closing_pars_found = 0;
+        for char in val.chars() {
+            if char == '(' {
+                opening_pars_found += 1;
+            } else if char == ')' {
+                closing_pars_found += 1;
+            }
+        }
+        // TODO: Handle embedded function calls
+        opening_pars_found == closing_pars_found && opening_pars_found > 0
+    }
+
+    let is_keyword = |token: &Token| -> bool {
+        keywords.contains(&token.value.as_str())
+    };
+    
+    enum StatementType {
+        NA,
+        FunctionCall,
+        VariableDeclaration,
+        VariableDefinition,
+    }
 
     for statement in &lx.statements {
-        for token in &statement.tokens {
-            let Some((fn_name, rest)) = token.value.split_once('(') else {
-                // not a function call since there's no '('
-                throw_error(format!("{}:{} - Unknown expression \"{}\"", token.line, token.col, token.value));
-            };
+        let mut statement_type: StatementType = StatementType::NA;
 
-            let Some(builtin) = builtins.get(fn_name) else {
-                throw_error(format!("{}:{} - Unknown function \"{}()\"", token.line, token.col, fn_name));
-            };
-
-            let Some(inner) = rest.strip_suffix(')') else {
-                throw_syntax_error(format!("{}:{} - Unclosed parentheses at function call in \"{}\"", token.line, token.col, token.value));
-            };
-
-            let args: Vec<Value> = if inner.is_empty() {
-                Vec::new()
-            } else if let Some(s) = inner.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
-                vec![Value::Str(s.to_string())]
-            } else if let Ok(n) = inner.parse::<f64>() {
-                vec![Value::Number(n)]
-            } else {
-                throw_error(format!("{}:{} - could not parse argument \"{}\"", token.line, token.col, inner));
-            };
-
-            if let Some(n) = builtin.arity {
-                if args.len() != n {
-                    throw_error(format!("{}:{} - {} expects {} args; got {} instead.", token.line, token.col, builtin.name, n, args.len()));
+        // Determine statement type by reading first token
+        let first_token = &statement.tokens[0];
+        if is_function_call(first_token) {
+            statement_type = StatementType::FunctionCall;
+        } else if is_keyword(first_token) {
+            match first_token.value.as_str() {
+                "var" => {
+                    statement_type = StatementType::VariableDeclaration;
+                }
+                _ => {
+                    throw_error(format!("{}:{} - Keyword {} not implemented yet", first_token.line, first_token.col, first_token.value))
                 }
             }
+        }
 
-            if let Err(e) = (builtin.func)(args) {
-                throw_error(format!("Error: {}", e));
+        match statement_type {
+            StatementType::VariableDeclaration => {
+                // Ensure there are enough tokens for valid syntax
+                if statement.tokens.len() != 4 {
+                    throw_syntax_error(format!("{}:{} - Variable definition syntax: var <name> = <value> (no more or less)", &statement.line, &first_token.col))
+                }
+                // Save variable name and ensure = sign is used after variable name
+                let second_token = &statement.tokens[1];
+                let third_token = &statement.tokens[2];
+                let fourth_token = &statement.tokens[3];
+                if third_token.value.as_str() == "=" {
+                    // correct syntax
+                    let new_var = Variable::new(second_token.value.clone(), fourth_token.value.clone());
+                    variables.push(new_var);
+                } else {
+                    throw_syntax_error(format!("{}:{} - Variable definition syntax: var <name> = <value>", second_token.line, second_token.col))
+                }
+            }
+            StatementType::FunctionCall => {
+                let Some((fn_name, rest)) = first_token.value.split_once('(') else {
+                    // not a function call since there's no '('
+                    throw_error(format!("{}:{} - Interpreter thought this was a function but later determined its not. This should be be possible. \"{}\"", first_token.line, first_token.col, first_token.value));
+                };
+
+                let Some(builtin) = builtins.get(fn_name) else {
+                    throw_error(format!("{}:{} - Unknown function \"{}()\"", first_token.line, first_token.col, fn_name));
+                };
+
+                let Some(inner) = rest.strip_suffix(')') else {
+                    throw_syntax_error(format!("{}:{} - Unclosed parentheses at function call in \"{}\"", first_token.line, first_token.col, first_token.value));
+                };
+
+                let args: Vec<Value> = if inner.is_empty() {
+                    Vec::new()
+                } else if let Some(s) = inner.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                    vec![Value::Str(s.to_string())]
+                } else if let Ok(n) = inner.parse::<f64>() {
+                    vec![Value::Number(n)]
+                } else if let Some(v) = variables.iter().find(|v| v.name == inner.trim()) {
+                    // Parse the variable's value
+                    if let Some(s) = v.value.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                        vec![Value::Str(s.to_string())]
+                    } else if let Ok(n) = v.value.parse::<f64>() {
+                        vec![Value::Number(n)]
+                    } else if v.value == "True" {
+                        vec![Value::Bool(true)]
+                    } else if v.value == "False" {
+                        vec![Value::Bool(false)]
+                    } else if v.value == "Null" {
+                        vec![Value::Null]
+                    } else {
+                        throw_error(format!("{}:{} - could not parse variable value \"{}\"", first_token.line, first_token.col, v.value));
+                    }
+                } else {
+                    throw_error(format!("{}:{} - could not parse argument \"{}\"", first_token.line, first_token.col, inner));
+                };
+
+                if let Some(n) = builtin.arity {
+                    if args.len() != n {
+                        throw_error(format!("{}:{} - {} expects {} args; got {} instead.", first_token.line, first_token.col, builtin.name, n, args.len()));
+                    }
+                }
+
+                if let Err(e) = (builtin.func)(args) {
+                    throw_error(format!("{}", e));
+                }
+            }
+            _ => {
+                throw_error(format!("{}:{} - Unknown statement type", first_token.line, first_token.col))
             }
         }
     }
