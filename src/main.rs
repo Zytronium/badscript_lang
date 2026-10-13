@@ -345,7 +345,7 @@ fn main() {
         lx.prev_char = char;
         lx.col += 1;
     }
-    
+
     fn is_function_call(token: &Token) -> bool {
         let val = &token.value;
         let mut opening_pars_found = 0;
@@ -368,12 +368,12 @@ fn main() {
     fn is_variable_name(token: &Token, variables: &[Variable]) -> bool {
         variables.iter().any(|v| v.name == token.value)
     }
-    
+
     enum StatementType {
         NA,
         FunctionCall,
         VariableDeclaration,
-        VariableDefinition,
+        VariableReassignment,
     }
 
     for statement in &lx.statements {
@@ -392,8 +392,8 @@ fn main() {
                     throw_error(format!("{}:{} - Keyword {} not implemented yet", first_token.line, first_token.col, first_token.value))
                 }
             }
-        } else if is_variable_name(first_token, &variables) {
-            statement_type = StatementType::VariableDefinition;
+        } else if is_variable_name(first_token, &variables) && statement.tokens.len() >= 2 && statement.tokens[1].value == "=" {
+            statement_type = StatementType::VariableReassignment; // Doesn't mean it's correct syntax
         }
 
         match statement_type {
@@ -454,16 +454,11 @@ fn main() {
                     throw_error(format!("{}", e));
                 }
             }
-            StatementType::VariableDefinition => {
+            StatementType::VariableReassignment => {
                 if statement.tokens.len() != 3 {
                     throw_syntax_error(format!("{}:{} - Variable re-assignment syntax: <name> = <value> (no more or less)", &statement.line, &first_token.col))
                 }
-                let second_token = &statement.tokens[1];
                 let third_token = &statement.tokens[2];
-                
-                if second_token.value != "=" {
-                    throw_syntax_error(format!("{}:{} - Variable re-assignment syntax: <name> = <value>", second_token.line, second_token.col))
-                }
 
                 let new_value = match parse_value(third_token.value.as_str()) {
                     Ok(v) => v,
