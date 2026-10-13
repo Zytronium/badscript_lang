@@ -102,6 +102,22 @@ fn bs_fn_exit(args: Vec<Value>) -> Result<Value, String> {
 }
 
 #[derive(Debug, Clone)]
+struct Keyword {
+    value: String,
+}
+
+impl Keyword {
+    fn new(value: String) -> Self {
+        Keyword { value }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Operator {
+    symbol: String,
+}
+
+#[derive(Debug, Clone)]
 struct Token {
     value: String,
     line: usize,
