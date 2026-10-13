@@ -101,28 +101,41 @@ fn bs_fn_exit(args: Vec<Value>) -> Result<Value, String> {
     process::exit(c)
 }
 
+#[derive(Debug, Clone)]
 struct Token {
     value: String,
-    line: i32,
-    col: i32, // Start column of token
+    line: usize,
+    col: usize, // Start column of token
 }
 
 impl Token {
-    fn new(value: String, line: i32, col: i32) -> Self {
+    fn new(value: String, line: usize, col: usize) -> Self {
         Token { value, line, col }
     }
 }
 
-struct Lexer {
+#[derive(Debug, Clone)]
+struct Statement {
     tokens: Vec<Token>,
+    line: usize,
+}
+
+impl Statement {
+    fn new(tokens: Vec<Token>, line: usize) -> Self {
+        Statement { tokens, line }
+    }
+}
+
+struct Lexer {
+    tokens: Vec<Token>, // TODO: replace with statements
     current_token: String,
-    token_start_col: i32,
+    token_start_col: usize,
     prev_char: char,
     next_esc_seq: bool,
     comment_mode: bool,
     string_mode: bool,
-    line: i32,
-    col: i32,
+    line: usize,
+    col: usize,
 }
 
 impl Lexer {
