@@ -245,21 +245,25 @@ fn main() {
         // "func",
     ];
     let operators = [
-        "=",
         "+",
         "-",
         "/",
         "*",
+    ];
+    let assignment_operators = [
+        "=",
+        "+=",
+        "-=",
+        "/=",
+        "*=",
+    ];
+    let comparators = [
         "<",
         ">",
         "<=",
         ">=",
         "!=",
         "==",
-        "+=",
-        "-=",
-        "/=",
-        "*=",
     ];
     let mut variables: Vec<Variable> = Vec::new();
 

@@ -1,6 +1,7 @@
-TODO: Add variables
+# Variables
 
-Variables should be assigned with the following syntax:
+Variables can be declared and assigned with the following syntax:
+
 ```
 var n = 12
 var THIS_IS_A_CONSTANT_VALUE = True
@@ -9,7 +10,7 @@ var name = "John"
 var nothing = Null
 ```
 
-variables should be updated with the following syntax:
+Variables can be updated with the following syntax:
 ```
 n = 19
 THIS_IS_A_CONSTANT_VALUE = False # Possible but not best practice - all caps name indicates a constant value. Will generate a warning before running script.
@@ -18,6 +19,8 @@ name="Johnathon"
 name += " Smith"
 nothing = "something" # Changes type of var from Null to String
 ```
+
+> Note: incrementing, decrementing, and concatenating strings with `+=` and `-=` is not implemented yet. 
 
 This will fail: 
 ```
@@ -28,7 +31,10 @@ age = 22
 age += "eleven" # Type error: cannot add string to number
 ```
 
-Variable values can be printed to the terminal with any of the four built-in print functions with this syntax:
+## Printing Variables
+
+Variable values can be printed to the terminal using any of the four built-in print functions:
+
 ```
 println(name)
 # prints "Johnathon Smith" without the quotes
@@ -38,4 +44,5 @@ printlnerr("\"")
 # prints in red, 'Error: input cannot be an SQL query to drop a table. Invalid input "; DROP TABLE Responses;"'
 ```
 
-Formatting strings to include variables mid-string is a separate future feature.
+> Note: String interpolation (formatting strings to include variables mid-string, such as `"Hello ${name}"`) is
+planned as a separate future feature.
