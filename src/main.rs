@@ -24,11 +24,12 @@ struct Builtin {
     func: BuiltinFn,
 }
 
-fn opt_str(args: &[Value]) -> Result<Option<&str>, String> {
-    match args.first() {
-        None => Ok(None),
-        Some(Value::Str(s)) => Ok(Some(s.as_str())),
-        Some(_) => Err(String::from("expected a string argument")),
+fn value_to_string(val: &Value) -> String {
+    match val {
+        Value::Number(n) => n.to_string(),
+        Value::Str(s) => s.clone(),
+        Value::Bool(b) => if *b { "True" } else { "False" }.to_string(),
+        Value::Null => "Null".to_string(),
     }
 }
 
@@ -53,26 +54,26 @@ fn builtins() -> HashMap<&'static str, Builtin> {
 }
 
 fn bs_fn_print(args: Vec<Value>) -> Result<Value, String> {
-    let msg = opt_str(&args)?;
-    print!("{}", msg.unwrap_or(""));
+    let msg = args.first().map(value_to_string).unwrap_or_default();
+    print!("{}", msg);
     io::stdout().flush().map_err(|e| e.to_string())?;
     Ok(Value::Null)
 }
 fn bs_fn_println(args: Vec<Value>) -> Result<Value, String> {
-    let msg = opt_str(&args)?;
-    println!("{}", msg.unwrap_or(""));
+    let msg = args.first().map(value_to_string).unwrap_or_default();
+    println!("{}", msg);
     Ok(Value::Null)
 }
 
 fn bs_fn_printerr(args: Vec<Value>) -> Result<Value, String> {
-    let emsg = opt_str(&args)?;
-    ceprint!("%R:{}", emsg.unwrap_or("Error"));
+    let emsg = args.first().map(value_to_string).unwrap_or_else(|| "Error".to_string());
+    ceprint!("%R:{}", emsg);
     Ok(Value::Null)
 }
 
 fn bs_fn_printlnerr(args: Vec<Value>) -> Result<Value, String> {
-    let emsg = opt_str(&args)?;
-    ceprintln!("%R:{}", emsg.unwrap_or("Error"));
+    let emsg = args.first().map(value_to_string).unwrap_or_else(|| "Error".to_string());
+    ceprintln!("%R:{}", emsg);
     Ok(Value::Null)
 }
 
