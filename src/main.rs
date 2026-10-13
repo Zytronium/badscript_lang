@@ -101,9 +101,22 @@ fn bs_fn_exit(args: Vec<Value>) -> Result<Value, String> {
     process::exit(c)
 }
 
+struct Token {
+    value: String,
+    line: i32,
+    col: i32, // Start column of token
+}
+
+impl Token {
+    fn new(value: String, line: i32, col: i32) -> Self {
+        Token { value, line, col }
+    }
+}
+
 struct Lexer {
-    tokens: Vec<String>,
+    tokens: Vec<Token>,
     current_token: String,
+    token_start_col: i32,
     prev_char: char,
     next_esc_seq: bool,
     comment_mode: bool,
@@ -117,6 +130,7 @@ impl Lexer {
         Lexer {
             tokens: Vec::new(),
             current_token: String::new(),
+            token_start_col: 1,
             prev_char: ' ',
             next_esc_seq: false,
             comment_mode: false,
@@ -129,8 +143,9 @@ impl Lexer {
     fn new_token(&mut self) {
         let tok = std::mem::take(&mut self.current_token).trim().to_string();
         if !tok.is_empty() {
-            self.tokens.push(tok);
+            self.tokens.push(Token::new(tok, self.line, self.token_start_col));
         }
+        self.token_start_col = self.col;
     }
 
     fn next_line(&mut self) {
@@ -197,6 +212,9 @@ fn main() {
             // double quotes - strings unless inside comments \\
             '"' => {
                 if !lx.comment_mode {
+                    if !lx.string_mode {
+                        lx.token_start_col = lx.col;
+                    }
                     lx.string_mode = !lx.string_mode;
                     lx.current_token.push(char);
                 }
@@ -247,17 +265,17 @@ fn main() {
     }
 
     for token in &lx.tokens {
-        let Some((fn_name, rest)) = token.split_once('(') else {
+        let Some((fn_name, rest)) = token.value.split_once('(') else {
             // not a function call since there's no '('
-            throw_error(format!("{}:{} - Unknown expression \"{}\"", "line", "col", token));
+            throw_error(format!("{}:{} - Unknown expression \"{}\"", token.line, token.col, token.value));
         };
 
         let Some(builtin) = builtins.get(fn_name) else {
-            throw_error(format!("{}:{} - Unknown function \"{}()\"", "line", "col", fn_name)); // TODO: get line and col of error location. NOTE: You can do this by turning `token` into tuples of text and location (location itself would be another tuple of line and col).
+            throw_error(format!("{}:{} - Unknown function \"{}()\"", token.line, token.col, fn_name));
         };
 
         let Some(inner) = rest.strip_suffix(')') else {
-            throw_syntax_error(format!("{}:{} - Unclosed parentheses at function call in \"{}\"", "line", "col", token)); // TODO: get line and col of error location.
+            throw_syntax_error(format!("{}:{} - Unclosed parentheses at function call in \"{}\"", token.line, token.col, token.value));
         };
 
         let args: Vec<Value> = if inner.is_empty() {
@@ -267,12 +285,12 @@ fn main() {
         } else if let Ok(n) = inner.parse::<f64>() {
             vec![Value::Number(n)]
         } else {
-            throw_error(format!("{}:{} - could not parse argument \"{}\"", "line", "col", inner)); // TODO: get line and col of error location.
+            throw_error(format!("{}:{} - could not parse argument \"{}\"", token.line, token.col, inner));
         };
 
         if let Some(n) = builtin.arity {
             if args.len() != n {
-                throw_error(format!("{}:{} - {} expects {} args; got {} instead.", "line", "col", builtin.name, n, args.len()));
+                throw_error(format!("{}:{} - {} expects {} args; got {} instead.", token.line, token.col, builtin.name, n, args.len()));
             }
         }
 
