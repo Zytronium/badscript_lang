@@ -364,6 +364,10 @@ fn main() {
     let is_keyword = |token: &Token| -> bool {
         keywords.contains(&token.value.as_str())
     };
+
+    fn is_variable_name(token: &Token, variables: &[Variable]) -> bool {
+        variables.iter().any(|v| v.name == token.value)
+    }
     
     enum StatementType {
         NA,
@@ -388,6 +392,8 @@ fn main() {
                     throw_error(format!("{}:{} - Keyword {} not implemented yet", first_token.line, first_token.col, first_token.value))
                 }
             }
+        } else if is_variable_name(first_token, &variables) {
+            statement_type = StatementType::VariableDefinition;
         }
 
         match statement_type {
@@ -396,7 +402,7 @@ fn main() {
                 if statement.tokens.len() != 4 {
                     throw_syntax_error(format!("{}:{} - Variable definition syntax: var <name> = <value> (no more or less)", &statement.line, &first_token.col))
                 }
-                // Save variable name and ensure = sign is used after variable name
+                // Save variable name and ensure `=` sign is used after variable name
                 let second_token = &statement.tokens[1];
                 let third_token = &statement.tokens[2];
                 let fourth_token = &statement.tokens[3];
@@ -446,6 +452,28 @@ fn main() {
 
                 if let Err(e) = (builtin.func)(args) {
                     throw_error(format!("{}", e));
+                }
+            }
+            StatementType::VariableDefinition => {
+                if statement.tokens.len() != 3 {
+                    throw_syntax_error(format!("{}:{} - Variable re-assignment syntax: <name> = <value> (no more or less)", &statement.line, &first_token.col))
+                }
+                let second_token = &statement.tokens[1];
+                let third_token = &statement.tokens[2];
+                
+                if second_token.value != "=" {
+                    throw_syntax_error(format!("{}:{} - Variable re-assignment syntax: <name> = <value>", second_token.line, second_token.col))
+                }
+
+                let new_value = match parse_value(third_token.value.as_str()) {
+                    Ok(v) => v,
+                    Err(e) => throw_error(format!("{}:{} - {}", third_token.line, third_token.col, e)),
+                };
+
+                if let Some(var) = variables.iter_mut().find(|v| v.name == first_token.value) {
+                    var.value = new_value;
+                } else {
+                    throw_error(format!("{}:{} - Unknown variable \"{}\"", first_token.line, first_token.col, first_token.value));
                 }
             }
             _ => {
