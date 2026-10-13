@@ -1,0 +1,132 @@
+# THE FOLLOWING IS AN AI-GENERATED SCRIPT
+# The syntax is human-checked and adjusted to fit the plan.
+# The goal is for this script to run successfully when enough of BadScript's
+# features are implemented.
+
+# ==============================================================================
+# BadScript Service Health Monitor & Diagnostics Tool
+# Performs automated health checks, uptime calculations, and status reporting.
+# ==============================================================================
+
+alias log_warn (msg) = "printlnerr(\"[WARN]  \" + msg)" # HUMAN NOTE: consider changing to printlnwarn and adding printwarn and printlnwarn built-ins
+alias log_err (msg) = "printlnerr(\"[ERROR] \" + msg)"
+
+var APP_NAME = "BadScript System Monitor"
+var VERSION = "1.2.0"
+var MAX_RETRIES = 3
+var CHECK_INTERVAL = 0.5
+var SIMULATED_LATENCY_THRESHOLD = 150
+
+println("==================================================")
+println("${APP_NAME} v${VERSION}")
+println("Starting diagnostics and service monitoring...")
+println("==================================================")
+println()
+
+# Function 1: Format response time and determine health tag
+func evaluate_response_time(latency_ms) {
+    if latency_ms <= 50 {
+        return "EXCELLENT"
+    } else if latency_ms <= SIMULATED_LATENCY_THRESHOLD {
+        return "ACCEPTABLE"
+    } else {
+        return "DEGRADED"
+    }
+}
+
+# Function 2: Calculate uptime percentage
+func calculate_uptime(total_checks, successful_checks) {
+    if total_checks == 0 {
+        return 0.0 # HUMAN NOTE: just 0 should work the same but we'll leave the decimal for testing purposes.
+    }
+    var uptime_ratio = successful_checks / total_checks
+    var uptime_pct = uptime_ratio * 100
+    return uptime_pct
+}
+
+# Function 3: Run service ping simulation and diagnostic loop
+func monitor_service(service_name, target_checks = 5) {
+    println("--> Initiating health checks for service: ${service_name}")
+    
+    var successful_checks = 0
+    var total_latency = 0
+    var failure_count = 0
+    
+    for check_id in 1..=target_checks {
+        print("    [Check ${check_id}/${target_checks}] Pinging ${service_name}... ")
+        
+        # Simulate network delay
+        sleep(CHECK_INTERVAL)
+        
+        # Pseudo latency calculation based on iteration
+        var latency = 40 + (check_id * 25) # HUMAN NOTE: We should test to make sure BadScript respect order of operations, which would make this formula equal the same thing without the parentheses
+        var is_ok = latency < 200 ? True : False # HUMAN NOTE: Ternary operators are not needed here but we'll leave it in for testing purposes
+        
+        if is_ok {
+            successful_checks += 1
+            total_latency += latency
+            var rating = evaluate_response_time(latency)
+            println("OK (${latency}ms) - Rating: ${rating}")
+        } else {
+            failure_count += 1
+            println("FAILED")
+            log_warn("High latency detected on ${service_name}: ${latency}ms")
+        }
+    }
+    
+    println()
+    return successful_checks
+}
+
+# Function 4: Generate summary report for evaluated services
+func generate_summary_report(service_name, total_checks, successful_checks) {
+    var uptime = calculate_uptime(total_checks, successful_checks)
+    var is_operational = uptime >= 80.0 # HUMAN NOTE: Removed unnecessary ternary operators here
+    var status_label = is_operational ? "ONLINE" : "UNSTABLE"
+    
+    println("--------------------------------------------------")
+    println("Service Report: ${service_name}")
+    println("--------------------------------------------------")
+    println("Total Checks Executed : ${total_checks}")
+    println("Successful Checks     : ${successful_checks}")
+    println("Uptime Percentage     : ${uptime}%")
+    println("Operational Status    : ${status_label}")
+    
+    if is_operational {
+        println("Result: Service is operating within acceptable parameters.")
+    } else {
+        log_err("Result: Service requires immediate administrator attention!")
+    }
+    println("--------------------------------------------------")
+    println()
+}
+
+# ------------------------------------------------------------------------------
+# Main Monitoring Execution Pipeline
+# ------------------------------------------------------------------------------
+
+var PRIMARY_SERVICE = "AuthService"
+var DATABASE_SERVICE = "PostgresCluster"
+var TOTAL_PINGS = 5
+
+# Monitor Primary Service
+var auth_success = monitor_service(PRIMARY_SERVICE, TOTAL_PINGS)
+generate_summary_report(PRIMARY_SERVICE, TOTAL_PINGS, auth_success)
+
+# Monitor Database Service
+var db_success = monitor_service(DATABASE_SERVICE, TOTAL_PINGS)
+generate_summary_report(DATABASE_SERVICE, TOTAL_PINGS, db_success)
+
+# Validation loop demonstrating while loop syntax
+var sync_counter = 3
+println("Verifying sync state before shutdown...")
+while sync_counter > 0 {
+    print("Flushing buffers... (Remaining: ${sync_counter})")
+    noop() # HUMAN NOTE: consider changing noop from a built-in function to a built-in keyword like Python's `pass`
+    sleep(0.2)
+    println(" [DONE]")
+    sync_counter -= 1
+}
+
+println()
+println("All monitoring routines completed successfully.")
