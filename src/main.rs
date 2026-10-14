@@ -241,7 +241,7 @@ fn main() {
     let keywords = [
         "var",
         "if",
-        // "else",
+        "else",
         // "func",
     ];
     let operators = [
@@ -361,6 +361,11 @@ fn main() {
         lx.prev_char = char;
         lx.col += 1;
     }
+    // Final touches - check for unclosed strings, end final statement
+    if lx.string_mode {
+        throw_syntax_error(format!("{}:{} - Unclosed string.", lx.line, lx.col));
+    }
+    lx.new_statement(); // End last statement if script doesn't end in a whitespace
 
     fn is_function_call(token: &Token) -> bool {
         let val = &token.value;
