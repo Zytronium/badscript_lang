@@ -102,6 +102,11 @@ fn bs_fn_exit(args: Vec<Value>) -> Result<Value, String> {
     process::exit(c)
 }
 
+enum Node {
+    Simple(Statement),
+    Block { header: Statement, body: Vec<Node>}
+}
+
 #[derive(Debug, Clone)]
 struct Variable {
     name: String,
@@ -344,7 +349,7 @@ fn main() {
             }
             '}' => { // End code block unless inside a string - single-char token, let parser handle behavior
                 if !lx.string_mode {
-                    lx.new_token(); // End prev token if not empty
+                    lx.new_statement(); // End prev token & statement
                     lx.current_token.push(char); // Push this char to new token
                     lx.new_statement(); // End new token and statement
                 }
@@ -366,6 +371,16 @@ fn main() {
         throw_syntax_error(format!("{}:{} - Unclosed string.", lx.line, lx.col));
     }
     lx.new_statement(); // End last statement if script doesn't end in a whitespace
+
+    // -------- Helpers -------- \\
+
+    fn is_block_start(statement: &Statement) -> bool {
+        statement.tokens.last().unwrap().value.as_str() == "{"
+    }
+
+    fn is_block_end(statement: &Statement) -> bool {
+        statement.tokens.len() == 1 && statement.tokens[0].value.as_str() == "}"
+    }
 
     fn is_function_call(token: &Token) -> bool {
         let val = &token.value;
