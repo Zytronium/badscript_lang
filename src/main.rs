@@ -513,11 +513,11 @@ fn main() {
                     throw_error(format!("{}", e));
                 }
             }
-            StatementType::IfElse => {
-                todo!(); // TODO: Handle if-else statements
+            StatementType::IfElse => { // TODO: Handle if-else statements
+                throw_error(format!("{}:{} - If/else statements are not implemented yet", first_token.line, first_token.col));
             }
             _ => {
-                throw_error(format!("{}:{} - Unknown statement type", first_token.line, first_token.col))
+                throw_error(format!("{}:{} - Unknown statement type", first_token.line, first_token.col));
             }
         }
     }
