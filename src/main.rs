@@ -240,7 +240,7 @@ fn main() {
     let builtins = builtins();
     let keywords = [
         "var",
-        // "if",
+        "if",
         // "else",
         // "func",
     ];
@@ -281,29 +281,33 @@ fn main() {
         }
 
         match char {
+            // escape sequences \\
+            'n' if lx.prev_char == '\\' && lx.string_mode => {
+                lx.current_token.push('\n');
+            }
+            _ if lx.prev_char == '\\' && lx.string_mode => {
+                throw_syntax_error(format!("{}:{} - Unknown escape sequence \\{}.", lx.line, lx.col - 1, char));
+            }
             // newlines - ends line, token, and comment \\
             '\n' => {
                 if lx.string_mode {
                     throw_syntax_error(format!("{}:{} - Unclosed string.", lx.line, lx.col));
                 }
                 lx.next_line();
-                if lx.comment_mode {
-                    lx.comment_mode = false;
-                }
+                lx.comment_mode = false;
                 if lx.prev_char == '\\' { // Don't error if last char of line is backslash
                     lx.next_esc_seq = false;
                 }
-                continue; // don't increment col (next_line() also sets prev_char so we can skip that safely too)
+                lx.prev_char = char;
+                continue; // don't increment col - next_line() sets it to 1 because it also increments line
             }
             // double quotes - strings unless inside comments \\
             '"' => {
-                if !lx.comment_mode {
-                    if !lx.string_mode {
-                        lx.token_start_col = lx.col;
-                    }
-                    lx.string_mode = !lx.string_mode;
-                    lx.current_token.push(char);
+                if !lx.string_mode {
+                    lx.token_start_col = lx.col;
                 }
+                lx.string_mode = !lx.string_mode;
+                lx.current_token.push(char);
             }
             // hashtags - comments unless inside strings \\
             '#' => {
@@ -330,12 +334,20 @@ fn main() {
                     lx.next_esc_seq = true;
                 }
             }
-            // escape sequences \\
-            'n' if lx.prev_char == '\\' && lx.string_mode => {
-                lx.current_token.push('\n');
+            // code blocks/branches \\
+            '{' => { // Start code block unless inside a string - single-char token, let parser handle behavior
+                if !lx.string_mode {
+                    lx.new_token(); // End prev token if not empty (no-op otherwise)
+                    lx.current_token.push(char); // Push this char to new token
+                    lx.new_statement(); // End new token and statement
+                }
             }
-            _ if lx.prev_char == '\\' && lx.string_mode => {
-                throw_syntax_error(format!("{}:{} - Unknown escape sequence \\{}.", lx.line, lx.col - 1, char));
+            '}' => { // End code block unless inside a string - single-char token, let parser handle behavior
+                if !lx.string_mode {
+                    lx.new_token(); // End prev token if not empty
+                    lx.current_token.push(char); // Push this char to new token
+                    lx.new_statement(); // End new token and statement
+                }
             }
             // all other chars \\
             _ => {
@@ -361,16 +373,41 @@ fn main() {
                 closing_pars_found += 1;
             }
         }
-        // TODO: Handle embedded function calls
+        // TODO: Handle nested function calls
         opening_pars_found == closing_pars_found && opening_pars_found > 0
     }
 
-    let is_keyword = |token: &Token| -> bool {
-        keywords.contains(&token.value.as_str())
-    };
-
     fn is_variable_name(token: &Token, variables: &[Variable]) -> bool {
         variables.iter().any(|v| v.name == token.value)
+    }
+
+    fn is_if_or_else_statement(token: &Token, statement: &Statement, variables: &[Variable]) -> bool {
+        if !matches!(token.value.as_str(), "if" | "else") {
+            return false;
+        }
+
+        let Some(last_token) = statement.tokens.last() else {
+            return false;
+        };
+
+        if last_token.value != "{" {
+            return false;
+        }
+
+        match token.value.as_str() {
+            "if" => {
+                statement.tokens.len() >= 3
+                    && (
+                    matches!(statement.tokens[1].value.as_str(), "True" | "False")
+                        || variables.iter().any(|v|
+                        v.name == statement.tokens[1].value
+                            && matches!(v.value, Value::Bool(_))
+                    )
+                )
+            }
+            "else" => statement.tokens.len() == 2 && statement.tokens[1].value.as_str() == "{",
+            _ => false,
+        }
     }
 
     enum StatementType {
@@ -378,6 +415,7 @@ fn main() {
         FunctionCall,
         VariableDeclaration,
         VariableReassignment,
+        IfElse,
     }
 
     for statement in &lx.statements {
@@ -387,17 +425,12 @@ fn main() {
         let first_token = &statement.tokens[0];
         if is_function_call(first_token) {
             statement_type = StatementType::FunctionCall;
-        } else if is_keyword(first_token) {
-            match first_token.value.as_str() {
-                "var" => {
-                    statement_type = StatementType::VariableDeclaration;
-                }
-                _ => {
-                    throw_error(format!("{}:{} - Keyword {} not implemented yet", first_token.line, first_token.col, first_token.value))
-                }
-            }
+        } else if first_token.value.as_str() == "var" {
+            statement_type = StatementType::VariableDeclaration;
         } else if is_variable_name(first_token, &variables) && statement.tokens.len() >= 2 && statement.tokens[1].value == "=" {
             statement_type = StatementType::VariableReassignment; // Doesn't mean it's correct syntax
+        } else if is_if_or_else_statement(first_token, &statement, &variables) {
+            statement_type = StatementType::IfElse
         }
 
         match statement_type {
@@ -420,6 +453,23 @@ fn main() {
                     variables.push(new_var);
                 } else {
                     throw_syntax_error(format!("{}:{} - Variable definition syntax: var <name> = <value>", second_token.line, second_token.col))
+                }
+            }
+            StatementType::VariableReassignment => {
+                if statement.tokens.len() != 3 {
+                    throw_syntax_error(format!("{}:{} - Variable re-assignment syntax: <name> = <value> (no more or less)", &statement.line, &first_token.col))
+                }
+                let third_token = &statement.tokens[2];
+
+                let new_value = match parse_value(third_token.value.as_str()) {
+                    Ok(v) => v,
+                    Err(e) => throw_error(format!("{}:{} - {}", third_token.line, third_token.col, e)),
+                };
+
+                if let Some(var) = variables.iter_mut().find(|v| v.name == first_token.value) {
+                    var.value = new_value;
+                } else {
+                    throw_error(format!("{}:{} - Unknown variable \"{}\"", first_token.line, first_token.col, first_token.value));
                 }
             }
             StatementType::FunctionCall => {
@@ -458,22 +508,8 @@ fn main() {
                     throw_error(format!("{}", e));
                 }
             }
-            StatementType::VariableReassignment => {
-                if statement.tokens.len() != 3 {
-                    throw_syntax_error(format!("{}:{} - Variable re-assignment syntax: <name> = <value> (no more or less)", &statement.line, &first_token.col))
-                }
-                let third_token = &statement.tokens[2];
-
-                let new_value = match parse_value(third_token.value.as_str()) {
-                    Ok(v) => v,
-                    Err(e) => throw_error(format!("{}:{} - {}", third_token.line, third_token.col, e)),
-                };
-
-                if let Some(var) = variables.iter_mut().find(|v| v.name == first_token.value) {
-                    var.value = new_value;
-                } else {
-                    throw_error(format!("{}:{} - Unknown variable \"{}\"", first_token.line, first_token.col, first_token.value));
-                }
+            StatementType::IfElse => {
+                todo!(); // TODO: Handle if-else statements
             }
             _ => {
                 throw_error(format!("{}:{} - Unknown statement type", first_token.line, first_token.col))
