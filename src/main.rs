@@ -1,3 +1,16 @@
+//! BadScript Interpreter
+//!
+//! A simple, experimental interpreted scripting language interpreter.
+//! This program reads and executes BadScript (.bs) files.
+//! The language is in early development and is not complete.
+//! The goal of this project is not to create a language with a specific use
+//! case or purpose, but just to experiment and learn about creating a new
+//! coding language (and also to improve my Rust skills). Read more in
+//! README.md.
+//!
+//! Usage: badscript <file>
+
+// -------- imports -------- \\
 use std::collections::HashMap;
 use std::{env, io, time};
 use std::fs;
@@ -7,6 +20,9 @@ use std::thread::sleep;
 use colored_print::ceprintln;
 use colored_print::ceprint;
 
+// -------- core types -------- \\
+
+// Value - both a variable type and a variable value of that type
 #[derive(Debug, Clone)]
 enum Value {
     Number(f64),
@@ -15,98 +31,7 @@ enum Value {
     Null,
 }
 
-type BuiltinFn = fn(Vec<Value>) -> Result<Value, String>;
-
-#[derive(Clone)]
-struct Builtin {
-    name: &'static str,
-    arity: Option<usize>, // None means arbitrary number of args
-    func: BuiltinFn,
-}
-
-fn value_to_string(val: &Value) -> String {
-    match val {
-        Value::Number(n) => n.to_string(),
-        Value::Str(s) => s.clone(),
-        Value::Bool(b) => if *b { "True" } else { "False" }.to_string(),
-        Value::Null => "Null".to_string(),
-    }
-}
-
-fn builtins() -> HashMap<&'static str, Builtin> {
-    let mut map = HashMap::new();
-
-    let list = [
-        Builtin { name: "print", arity: None, func: bs_fn_print },
-        Builtin { name: "println", arity: None, func: bs_fn_println },
-        Builtin { name: "printerr", arity: None, func: bs_fn_printerr },
-        Builtin { name: "printlnerr", arity: None, func: bs_fn_printlnerr },
-        Builtin { name: "noop", arity: Some(0), func: bs_fn_noop },
-        Builtin { name: "sleep", arity: Some(1), func: bs_fn_sleep },
-        Builtin { name: "exit", arity: None, func: bs_fn_exit },
-    ];
-
-    for b in list {
-        map.insert(b.name, b);
-    }
-
-    map
-}
-
-fn bs_fn_print(args: Vec<Value>) -> Result<Value, String> {
-    let msg = args.first().map(value_to_string).unwrap_or_default();
-    print!("{}", msg);
-    io::stdout().flush().map_err(|e| e.to_string())?;
-    Ok(Value::Null)
-}
-fn bs_fn_println(args: Vec<Value>) -> Result<Value, String> {
-    let msg = args.first().map(value_to_string).unwrap_or_default();
-    println!("{}", msg);
-    Ok(Value::Null)
-}
-
-fn bs_fn_printerr(args: Vec<Value>) -> Result<Value, String> {
-    let emsg = args.first().map(value_to_string).unwrap_or_else(|| "Error".to_string());
-    ceprint!("%R:{}", emsg);
-    Ok(Value::Null)
-}
-
-fn bs_fn_printlnerr(args: Vec<Value>) -> Result<Value, String> {
-    let emsg = args.first().map(value_to_string).unwrap_or_else(|| "Error".to_string());
-    ceprintln!("%R:{}", emsg);
-    Ok(Value::Null)
-}
-
-fn bs_fn_noop(_args: Vec<Value>) -> Result<Value, String> {
-    Ok(Value::Null)
-}
-
-fn bs_fn_sleep(args: Vec<Value>) -> Result<Value, String> {
-    let sec = match args.first() {
-        None => return Err(String::from("expected 1 argument. Found 0.")),
-        Some(Value::Number(n)) => *n,
-        Some(_) => return Err(String::from("sleep expects a number")),
-    };
-
-    sleep(time::Duration::from_secs_f64(sec));
-
-    Ok(Value::Null)
-}
-
-fn bs_fn_exit(args: Vec<Value>) -> Result<Value, String> {
-    let c = match args.first() {
-        None => 0,
-        Some(Value::Number(n)) => *n as i32,
-        Some(_) => return Err(String::from("exit expects a number")),
-    };
-    process::exit(c)
-}
-
-enum Node {
-    Simple(Statement),
-    Block { header: Statement, body: Vec<Node>}
-}
-
+// Variable - if you don't know what this is, there's no hope for you
 #[derive(Debug, Clone)]
 struct Variable {
     name: String,
@@ -122,6 +47,7 @@ impl Variable {
     }
 }
 
+// Token - an individual word or short string separated by whitespace in the script file
 #[derive(Debug, Clone)]
 struct Token {
     value: String,
@@ -135,10 +61,11 @@ impl Token {
     }
 }
 
+// Statement - a line or part of a line in the script that, as a whole, provides an instruction
 #[derive(Debug, Clone)]
 struct Statement {
     tokens: Vec<Token>,
-    line: usize, // starting line - can span multiple lines by escaping newlines
+    line: usize, // starting line - can use multiple lines by escaping newlines
 }
 
 impl Statement {
@@ -147,6 +74,31 @@ impl Statement {
     }
 }
 
+// Node - either a lone flat statement or a parent statement with nested statements, such as an
+// if/else block
+#[derive(Debug, Clone)]
+enum Node {
+    Simple(Statement),
+    Block { header: Statement, body: Vec<Node>}
+}
+
+// StatementType - how types of statements are classified. Used as a helper when parsing the script
+// to execute it
+enum StatementType {
+    NA,
+    FunctionCall,
+    VariableDeclaration,
+    VariableReassignment,
+    IfElse,
+    // more to be added
+}
+
+// -------- lexer -------- \\
+
+// Lexer - converts raw source code text into a sequence of tokens, statements,
+// and nodes. It processes tokens one by one, handling strings, comments,
+// escape sequences, whitespace, and code blocks to produce something
+// the parser can understand and execute instructions with.
 struct Lexer {
     statements: Vec<Statement>,
     current_statement: Vec<Token>,
@@ -176,6 +128,7 @@ impl Lexer {
         }
     }
 
+    // Ends current token and begins a new empty one
     fn new_token(&mut self) {
         let tok = std::mem::take(&mut self.current_token).trim().to_string();
         if !tok.is_empty() {
@@ -184,6 +137,7 @@ impl Lexer {
         self.token_start_col = self.col;
     }
 
+    // Ends current statement and begins a new empty one
     fn new_statement(&mut self) {
         self.new_token();
         let stat = std::mem::take(&mut self.current_statement);
@@ -193,6 +147,8 @@ impl Lexer {
         self.token_start_col = self.col;
     }
 
+    // Helper that increments lexer line, resets lexer column, and begins a new statement (or just
+    // new token if at a backslash + newline)
     fn next_line(&mut self) {
         self.line += 1;
         self.col = 1;
@@ -204,6 +160,70 @@ impl Lexer {
     }
 }
 
+// -------- helpers -------- \\
+
+// parsing helper that determines if this is the start of a block or not
+fn is_block_start(statement: &Statement) -> bool {
+    statement.tokens.last().unwrap().value.as_str() == "{"
+}
+
+// parsing helper that determines if this is the end of a block or not
+fn is_block_end(statement: &Statement) -> bool {
+    statement.tokens.len() == 1 && statement.tokens[0].value.as_str() == "}"
+}
+
+// statement classification helper that determines if this is a function call
+fn is_function_call(token: &Token) -> bool {
+    let val = &token.value;
+    let mut opening_pars_found = 0;
+    let mut closing_pars_found = 0;
+    for char in val.chars() {
+        if char == '(' {
+            opening_pars_found += 1;
+        } else if char == ')' {
+            closing_pars_found += 1;
+        }
+    }
+    // TODO: Handle nested function calls
+    opening_pars_found == closing_pars_found && opening_pars_found > 0
+}
+
+// statement classification helper that determines if this is a variable name
+fn is_variable_name(token: &Token, variables: &[Variable]) -> bool {
+    variables.iter().any(|v| v.name == token.value)
+}
+
+// statement classification helper that determines if this is the start of an if/else statement
+fn is_if_or_else_statement(token: &Token, statement: &Statement, variables: &[Variable]) -> bool {
+    if !matches!(token.value.as_str(), "if" | "else") {
+        return false;
+    }
+
+    let Some(last_token) = statement.tokens.last() else {
+        return false;
+    };
+
+    if last_token.value != "{" {
+        return false;
+    }
+
+    match token.value.as_str() {
+        "if" => {
+            statement.tokens.len() >= 3
+                && (
+                matches!(statement.tokens[1].value.as_str(), "True" | "False")
+                    || variables.iter().any(|v|
+                    v.name == statement.tokens[1].value
+                        && matches!(v.value, Value::Bool(_))
+                )
+            )
+        }
+        "else" => statement.tokens.len() == 2 && statement.tokens[1].value.as_str() == "{",
+        _ => false,
+    }
+}
+
+// parses a Value from a raw string to its parsed, typed value
 fn parse_value(raw: &str) -> Result<Value, String> {
     if let Some(s) = raw.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
         Ok(Value::Str(s.to_string()))
@@ -220,17 +240,127 @@ fn parse_value(raw: &str) -> Result<Value, String> {
     }
 }
 
+// unparses a typed value into a string (basically .to_string() but for BadScript interpreting)
+fn value_to_string(val: &Value) -> String {
+    match val {
+        Value::Number(n) => n.to_string(),
+        Value::Str(s) => s.clone(),
+        Value::Bool(b) => if *b { "True" } else { "False" }.to_string(),
+        Value::Null => "Null".to_string(),
+    }
+}
+
+// -------- builtins -------- \\
+
+// BuiltinFn - a function pointer type for built-in BadScript functions
+type BuiltinFn = fn(Vec<Value>) -> Result<Value, String>;
+
+// Builtin - a BadScript builtin function
+#[derive(Clone)]
+struct Builtin {
+    name: &'static str,
+    arity: Option<usize>, // None means arbitrary number of args
+    func: BuiltinFn,
+}
+
+// creates and returns a HashMap of all built-in BadScript functions
+fn builtins() -> HashMap<&'static str, Builtin> {
+    let mut map = HashMap::new();
+
+    let list = [
+        Builtin { name: "print", arity: None, func: bs_fn_print },
+        Builtin { name: "println", arity: None, func: bs_fn_println },
+        Builtin { name: "printerr", arity: None, func: bs_fn_printerr },
+        Builtin { name: "printlnerr", arity: None, func: bs_fn_printlnerr },
+        Builtin { name: "noop", arity: Some(0), func: bs_fn_noop },
+        Builtin { name: "sleep", arity: Some(1), func: bs_fn_sleep },
+        Builtin { name: "exit", arity: None, func: bs_fn_exit },
+    ];
+
+    for b in list {
+        map.insert(b.name, b);
+    }
+
+    map
+}
+
+// builtin print() - prints a value or string to stdout WITHOUT a newline at the end
+fn bs_fn_print(args: Vec<Value>) -> Result<Value, String> {
+    let msg = args.first().map(value_to_string).unwrap_or_default();
+    print!("{}", msg);
+    io::stdout().flush().map_err(|e| e.to_string())?;
+    Ok(Value::Null)
+}
+
+// builtin println() - prints a value or string to stdout WITH a newline at the end
+fn bs_fn_println(args: Vec<Value>) -> Result<Value, String> {
+    let msg = args.first().map(value_to_string).unwrap_or_default();
+    println!("{}", msg);
+    Ok(Value::Null)
+}
+
+// builtin printerr() - prints in red a value or string to stderr WITHOUT a newline at the end
+fn bs_fn_printerr(args: Vec<Value>) -> Result<Value, String> {
+    let emsg = args.first().map(value_to_string).unwrap_or_else(|| "Error".to_string());
+    ceprint!("%R:{}", emsg);
+    Ok(Value::Null)
+}
+
+// builtin printlnerr() - prints in red a value or string to stderr WITH a newline at the end
+fn bs_fn_printlnerr(args: Vec<Value>) -> Result<Value, String> {
+    let emsg = args.first().map(value_to_string).unwrap_or_else(|| "Error".to_string());
+    ceprintln!("%R:{}", emsg);
+    Ok(Value::Null)
+}
+
+// builtin noop() - does nothing
+fn bs_fn_noop(_args: Vec<Value>) -> Result<Value, String> {
+    Ok(Value::Null)
+}
+
+// builtin sleep() - waits for n seconds before continuing with the script (blocking)
+fn bs_fn_sleep(args: Vec<Value>) -> Result<Value, String> {
+    let sec = match args.first() {
+        None => return Err(String::from("expected 1 argument. Found 0.")),
+        Some(Value::Number(n)) => *n,
+        Some(_) => return Err(String::from("sleep expects a number")),
+    };
+
+    sleep(time::Duration::from_secs_f64(sec));
+
+    Ok(Value::Null)
+}
+
+// builtin exit() - ends the program on a given exit code, or 0 if not specified
+fn bs_fn_exit(args: Vec<Value>) -> Result<Value, String> {
+    let c = match args.first() {
+        None => 0,
+        Some(Value::Number(n)) => *n as i32,
+        Some(_) => return Err(String::from("exit expects a number")),
+    };
+    process::exit(c)
+}
+
+// -------- errors -------- \\
+// TODO: Add an actual Error/Exception/Throwable struct and ErrorType enum
+
+// Prints a red error message and exits on exit code 1 ("Error: {msg}")
 fn throw_error(msg: String) -> ! {
     ceprintln!("%R:Error: {msg}");
     process::exit(1);
 }
 
+// Prints a red syntax error message and exits on exit code 1 ("Syntax error: {msg}")
 fn throw_syntax_error(msg: String) -> ! {
     ceprintln!("%R:Syntax error: {msg}");
     process::exit(1);
 }
 
+// NOTE: Consider adding warnings that print in yellow and don't end the program
+
+// -------- Main entry point -------- \\
 fn main() {
+    // Get and validate script file path
     let file_path = match env::args().nth(1) {
         Some(p) => p,
         None => {
@@ -239,6 +369,7 @@ fn main() {
         }
     };
 
+    // Open script and save contents to memory as UTF-8 string
     let script = fs::read_to_string(file_path)
         .expect("Failed to read file");
 
@@ -270,10 +401,11 @@ fn main() {
         "!=",
         "==",
     ];
-    let mut variables: Vec<Variable> = Vec::new();
 
+    let mut variables: Vec<Variable> = Vec::new();
     let mut lx = Lexer::new();
 
+    // Loop through script's characters, tokenizing it and building statements
     for char in script.chars() {
         // In comment mode, ignore all characters except newline, which turns off comment mode
         if lx.comment_mode && char != '\n' {
@@ -285,6 +417,7 @@ fn main() {
             throw_syntax_error(format!("{}:{} - Escape sequences are only allowed in strings or to break a line into two lines", lx.line, lx.col - 1));
         }
 
+        // Punctuation behavior + building tokens and statements
         match char {
             // escape sequences \\
             'n' if lx.prev_char == '\\' && lx.string_mode => {
@@ -304,7 +437,7 @@ fn main() {
                     lx.next_esc_seq = false;
                 }
                 lx.prev_char = char;
-                continue; // don't increment col - next_line() sets it to 1 because it also increments line
+                continue; // don't increment col - next_line() resets it to 1 and increments line
             }
             // double quotes - strings unless inside comments \\
             '"' => {
@@ -360,101 +493,41 @@ fn main() {
             }
         }
 
+        // Tell lexer this is an escape sequence if last char = \
         if lx.prev_char == '\\' {
             lx.next_esc_seq = false;
         }
+
+        // Update prev_char and increment col before next loop iteration
         lx.prev_char = char;
         lx.col += 1;
     }
+
     // Final touches - check for unclosed strings, end final statement
     if lx.string_mode {
         throw_syntax_error(format!("{}:{} - Unclosed string.", lx.line, lx.col));
     }
     lx.new_statement(); // End last statement if script doesn't end in a whitespace
 
-    // -------- Helpers -------- \\
-
-    fn is_block_start(statement: &Statement) -> bool {
-        statement.tokens.last().unwrap().value.as_str() == "{"
-    }
-
-    fn is_block_end(statement: &Statement) -> bool {
-        statement.tokens.len() == 1 && statement.tokens[0].value.as_str() == "}"
-    }
-
-    fn is_function_call(token: &Token) -> bool {
-        let val = &token.value;
-        let mut opening_pars_found = 0;
-        let mut closing_pars_found = 0;
-        for char in val.chars() {
-            if char == '(' {
-                opening_pars_found += 1;
-            } else if char == ')' {
-                closing_pars_found += 1;
-            }
-        }
-        // TODO: Handle nested function calls
-        opening_pars_found == closing_pars_found && opening_pars_found > 0
-    }
-
-    fn is_variable_name(token: &Token, variables: &[Variable]) -> bool {
-        variables.iter().any(|v| v.name == token.value)
-    }
-
-    fn is_if_or_else_statement(token: &Token, statement: &Statement, variables: &[Variable]) -> bool {
-        if !matches!(token.value.as_str(), "if" | "else") {
-            return false;
-        }
-
-        let Some(last_token) = statement.tokens.last() else {
-            return false;
-        };
-
-        if last_token.value != "{" {
-            return false;
-        }
-
-        match token.value.as_str() {
-            "if" => {
-                statement.tokens.len() >= 3
-                    && (
-                    matches!(statement.tokens[1].value.as_str(), "True" | "False")
-                        || variables.iter().any(|v|
-                        v.name == statement.tokens[1].value
-                            && matches!(v.value, Value::Bool(_))
-                    )
-                )
-            }
-            "else" => statement.tokens.len() == 2 && statement.tokens[1].value.as_str() == "{",
-            _ => false,
-        }
-    }
-
-    enum StatementType {
-        NA,
-        FunctionCall,
-        VariableDeclaration,
-        VariableReassignment,
-        IfElse,
-    }
-
+    // Loop through statements and their tokens
     for statement in &lx.statements {
         let mut statement_type: StatementType = StatementType::NA;
 
-        // Determine statement type by reading first token
+        // Determine statement type by reading the statement
         let first_token = &statement.tokens[0];
-        if is_function_call(first_token) {
-            statement_type = StatementType::FunctionCall;
-        } else if first_token.value.as_str() == "var" {
-            statement_type = StatementType::VariableDeclaration;
-        } else if is_variable_name(first_token, &variables) && statement.tokens.len() >= 2 && statement.tokens[1].value == "=" {
-            statement_type = StatementType::VariableReassignment; // Doesn't mean it's correct syntax
-        } else if is_if_or_else_statement(first_token, &statement, &variables) {
-            statement_type = StatementType::IfElse
-        }
+        statement_type = match first_token {
+            _ if is_function_call(first_token) => StatementType::FunctionCall,
+            _ if first_token.value.as_str() == "var" => StatementType::VariableDeclaration,
+            _ if is_variable_name(first_token, &variables)
+                && statement.tokens.len() >= 2
+                && statement.tokens[1].value == "=" => StatementType::VariableReassignment,
+            _ if is_if_or_else_statement(first_token, &statement, &variables) => StatementType::IfElse,
+            _ => StatementType::NA,
+        };
 
+        // Execute statement - behavior determined by statement type and contents of statement
         match statement_type {
-            StatementType::VariableDeclaration => {
+            StatementType::VariableDeclaration => { // Declare a new variable
                 // Ensure there are enough tokens for valid syntax
                 if statement.tokens.len() != 4 {
                     throw_syntax_error(format!("{}:{} - Variable definition syntax: var <name> = <value> (no more or less)", &statement.line, &first_token.col))
@@ -475,7 +548,7 @@ fn main() {
                     throw_syntax_error(format!("{}:{} - Variable definition syntax: var <name> = <value>", second_token.line, second_token.col))
                 }
             }
-            StatementType::VariableReassignment => {
+            StatementType::VariableReassignment => { // Assign a new value to a variable
                 if statement.tokens.len() != 3 {
                     throw_syntax_error(format!("{}:{} - Variable re-assignment syntax: <name> = <value> (no more or less)", &statement.line, &first_token.col))
                 }
@@ -492,7 +565,7 @@ fn main() {
                     throw_error(format!("{}:{} - Unknown variable \"{}\"", first_token.line, first_token.col, first_token.value));
                 }
             }
-            StatementType::FunctionCall => {
+            StatementType::FunctionCall => { // Call a function | NOTE: currently builtins only
                 let Some((fn_name, rest)) = first_token.value.split_once('(') else {
                     // not a function call since there's no '('
                     throw_error(format!("{}:{} - Interpreter thought this was a function but later determined its not. This should be be possible. \"{}\"", first_token.line, first_token.col, first_token.value));
@@ -528,7 +601,7 @@ fn main() {
                     throw_error(format!("{}", e));
                 }
             }
-            StatementType::IfElse => { // TODO: Handle if-else statements
+            StatementType::IfElse => { // Execute an if/else block | TODO: Handle if-else statements
                 throw_error(format!("{}:{} - If/else statements are not implemented yet", first_token.line, first_token.col));
             }
             _ => {
