@@ -74,7 +74,7 @@ impl Statement {
     }
 }
 
-// Node - either a lone flat statement or a parent statement with nested statements, such as an
+// Node - either a lone flat statement or a parent statement with nested statements, such as an 
 // if/else block
 #[derive(Debug, Clone)]
 enum Node {
@@ -250,6 +250,52 @@ fn value_to_string(val: &Value) -> String {
     }
 }
 
+// get name of a BadScript Variable's type
+fn type_name(v: &Value) -> &'static str {
+    match v {
+        Value::Number(_) => "Number",
+        Value::Bool(_) => "Bool",
+        Value::Str(_) => "String",
+        Value::Null => "Null",
+    }
+}
+
+// helper for computing variable reassignment based on operator used (i.e. +=)
+fn apply_operator(op: &str, left: &Value, right: &Value) -> Result<Value, String> {
+    match (op, left, right) {
+        // =: just reassign regardless of types
+        ("=", _, _) => {
+            Ok(right.clone())
+        },
+        // number & number: do the associated math
+        ("+=", Value::Number(l), Value::Number(r)) => {
+            Ok(Value::Number(l + r))
+        },
+        ("-=", Value::Number(l), Value::Number(r)) => {
+            Ok(Value::Number(l - r))
+        },
+        ("/=", Value::Number(l), Value::Number(r)) => {
+            if *r != 0.0 { Ok(Value::Number(l / r)) } else { Err(String::from("Cannot divide by 0.")) }
+        },
+        ("*=", Value::Number(l), Value::Number(r)) => {
+            Ok(Value::Number(l * r))
+        },
+        // string and string: concatenate
+        ("+=", Value::Str(l), Value::Str(r)) => {
+            Ok(Value::Str(l.clone() + r))
+        },
+        // string and number: repeat string `r` times (including original) safely
+        ("*=", Value::Str(l), Value::Number(r)) => {
+            let count = r.round() as usize; // negatives and NaN become 0
+            match l.len().checked_mul(count) { // Err if count is too big (overflow detection)
+                Some(_) => Ok(Value::Str(l.repeat(count))),
+                None => Err(String::from("Repeating string is too long.")),
+            }
+        },
+        _ => Err(String::from(format!("Cannot apply {} to {} and {}.", op, type_name(left), type_name(right)))),
+    }
+}
+
 // -------- builtins -------- \\
 
 // BuiltinFn - a function pointer type for built-in BadScript functions
@@ -374,18 +420,18 @@ fn main() {
         .expect("Failed to read file");
 
     let builtins = builtins();
-    let keywords = [
+/*    let keywords = [
         "var",
         "if",
         "else",
         // "func",
-    ];
-    let operators = [
+    ];*/
+/*    let operators = [
         "+",
         "-",
         "/",
         "*",
-    ];
+    ];*/
     let assignment_operators = [
         "=",
         "+=",
@@ -393,14 +439,14 @@ fn main() {
         "/=",
         "*=",
     ];
-    let comparators = [
+/*    let comparators = [
         "<",
         ">",
         "<=",
         ">=",
         "!=",
         "==",
-    ];
+    ];*/
 
     let mut variables: Vec<Variable> = Vec::new();
     let mut lx = Lexer::new();
@@ -511,7 +557,7 @@ fn main() {
 
     // Loop through statements and their tokens
     for statement in &lx.statements {
-        let mut statement_type: StatementType = StatementType::NA;
+        let statement_type: StatementType;
 
         // Determine statement type by reading the statement
         let first_token = &statement.tokens[0];
@@ -520,7 +566,7 @@ fn main() {
             _ if first_token.value.as_str() == "var" => StatementType::VariableDeclaration,
             _ if is_variable_name(first_token, &variables)
                 && statement.tokens.len() >= 2
-                && statement.tokens[1].value == "=" => StatementType::VariableReassignment,
+                && assignment_operators.contains(&statement.tokens[1].value.as_str()) => StatementType::VariableReassignment,
             _ if is_if_or_else_statement(first_token, &statement, &variables) => StatementType::IfElse,
             _ => StatementType::NA,
         };
@@ -550,13 +596,31 @@ fn main() {
             }
             StatementType::VariableReassignment => { // Assign a new value to a variable
                 if statement.tokens.len() != 3 {
-                    throw_syntax_error(format!("{}:{} - Variable re-assignment syntax: <name> = <value> (no more or less)", &statement.line, &first_token.col))
+                    // Catch ++ or -- style incrementing or decrementing
+                    if statement.tokens.len() == 2 && ["++", "--"].contains(&statement.tokens[1].value.as_str()) {
+                        throw_syntax_error(format!("{}:{} - BadScript does not support ++ or -- style incrementing or decrementing.\nVariable re-assignment syntax: <name> <operator> <value>. Example: x += 1", &statement.line, &statement.tokens[1].col))
+                    }
+                    throw_syntax_error(format!("{}:{} - Variable re-assignment syntax: <name> <operator> <value> (no more or less). Example: x += 5", &statement.line, &first_token.col))
                 }
+                let second_token = &statement.tokens[1];
                 let third_token = &statement.tokens[2];
+                let Some(var) = variables.iter().find(|v| v.name == first_token.value) else {
+                    // Impossible error - we already confirmed this is an existing variable when determining this statement type.
+                    // Still, we need to handle this case so Rust can treat this as a &Variable and not an Option<&Variable>
+                    throw_error(format!("{}:{} - Unknown variable \"{}\"", first_token.line, first_token.col, first_token.value))
+                };
 
-                let new_value = match parse_value(third_token.value.as_str()) {
-                    Ok(v) => v,
-                    Err(e) => throw_error(format!("{}:{} - {}", third_token.line, third_token.col, e)),
+                let tok3val = match variables.iter().find(|v| v.name == third_token.value.as_str()) {
+                    Some(v) => v.value.clone(),
+                    None => match parse_value(third_token.value.as_str()) {
+                        Ok(v) => v,
+                        Err(e) => throw_error(format!("{}:{} - {}",third_token.line, third_token.col, e)),
+                    },
+                };
+
+                let new_value = match apply_operator(second_token.value.as_str(), &var.value, &tok3val) {
+                    Ok(result) => result,
+                    Err(e) => throw_error(format!("{}:{} - {}", second_token.line, second_token.col, e)),
                 };
 
                 if let Some(var) = variables.iter_mut().find(|v| v.name == first_token.value) {
