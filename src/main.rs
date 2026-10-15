@@ -582,8 +582,12 @@ fn main() {
                 let second_token = &statement.tokens[1];
                 let third_token = &statement.tokens[2];
                 let fourth_token = &statement.tokens[3];
-                if third_token.value.as_str() == "=" {
-                    // correct syntax
+                if third_token.value.as_str() == "=" { // Now we know the syntax is correct
+                    // Check if variable already exists
+                    if is_variable_name(second_token, &variables) {
+                        throw_error(format!("{}:{} - Duplicate variable declaration. Variable \"{}\" already exists.", second_token.line, second_token.col, second_token.value));
+                        // NOTE: Consider finding the original variable declaration and showing what line and col it's at as a helpful message.
+                    }
                     let new_value = match parse_value(fourth_token.value.as_str()) {
                         Ok(v) => v,
                         Err(e) => throw_error(format!("{}:{} - {}", fourth_token.line, fourth_token.col, e)),
